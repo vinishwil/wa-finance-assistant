@@ -33,8 +33,8 @@ const supabaseOptions = {
 // Initialize Supabase client
 const supabase = createClient(supabaseUrl, supabaseKey, supabaseOptions);
 
-// Test connection on initialization
-(async () => {
+// Test connection on initialization (non-blocking)
+setImmediate(async () => {
   try {
     const { error } = await supabase.from('users').select('count', { count: 'exact', head: true });
     if (error && error.code !== 'PGRST116') {
@@ -46,7 +46,7 @@ const supabase = createClient(supabaseUrl, supabaseKey, supabaseOptions);
   } catch (error) {
     logger.error('Failed to test Supabase connection:', error);
   }
-})();
+});
 
 // Health check function
 async function checkConnection() {

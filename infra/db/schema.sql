@@ -22,6 +22,17 @@
 -- Stores WhatsApp number to user account mappings
 -- =============================================
 
+
+-- =============================================
+-- ALTER QUERIES FOR EXISTING TABLES
+-- =============================================
+
+-- Add missing columns to users table
+ALTER TABLE users 
+ADD COLUMN IF NOT EXISTS whatsapp_number TEXT;
+
+
+
 CREATE TABLE IF NOT EXISTS whatsapp_links (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,

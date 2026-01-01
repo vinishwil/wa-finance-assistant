@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { checkConnection } = require('../config/supabaseClient');
+const { checkConnection, supabase } = require('../config/supabaseClient');
 const aiService = require('../services/aiService');
 const supabaseService = require('../services/supabaseService');
 const { triggerJob, getJobsStatus } = require('../services/schedulerService');
@@ -71,19 +71,30 @@ router.get('/health', async (req, res) => {
  */
 router.get('/stats', authenticateAdmin, async (req, res) => {
   try {
-    const { data: messageCount } = await supabaseService.supabase
+    // Ensure supabase client is available
+    if (!supabase) {
+      throw new Error('Supabase client not initialized');
+    }
+
+    const { data: messageCount, error: messageError } = await supabase
       .from('event_logs')
       .select('count', { count: 'exact', head: true })
       .eq('event_type', 'whatsapp_message_received');
 
-    const { data: transactionCount } = await supabaseService.supabase
+    if (messageError) throw messageError;
+
+    const { data: transactionCount, error: transactionError } = await supabase
       .from('transactions')
       .select('count', { count: 'exact', head: true });
 
-    const { data: linkedUsers } = await supabaseService.supabase
+    if (transactionError) throw transactionError;
+
+    const { data: linkedUsers, error: linkedError } = await supabase
       .from('whatsapp_links')
       .select('count', { count: 'exact', head: true })
       .eq('verified', true);
+
+    if (linkedError) throw linkedError;
 
     res.json({
       success: true,
@@ -165,7 +176,7 @@ router.get('/logs', authenticateAdmin, async (req, res) => {
     const limit = parseInt(req.query.limit) || 100;
     const eventType = req.query.eventType;
 
-    let query = supabaseService.supabase
+    let query = supabase
       .from('event_logs')
       .select('*')
       .order('created_at', { ascending: false })

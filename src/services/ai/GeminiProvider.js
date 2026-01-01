@@ -141,7 +141,7 @@ class GeminiProvider extends AIProvider {
    */
   async checkHealth() {
     try {
-      const model = this.client.getGenerativeModel({ model: 'gemini-pro' });
+      const model = this.client.getGenerativeModel({ model: 'gemini-2.0-flash' });
       const result = await model.generateContent('test');
       const response = await result.response;
       response.text(); // Verify response is valid
@@ -149,7 +149,7 @@ class GeminiProvider extends AIProvider {
       return { 
         healthy: true, 
         provider: this.getName(),
-        model: 'gemini-pro'
+        model: 'gemini-2.0-flash'
       };
     } catch (error) {
       logger.error('Gemini health check failed', error);
