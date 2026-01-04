@@ -137,11 +137,21 @@ class AIServiceFactory {
 
       logger.info('Transcribed text:', { text: transcribedText });
 
-      // Step 2: Extract transaction from transcribed text
-      const transaction = await this.extractFromText(transcribedText, additionalContext, categories);
+      // Step 2: Extract transaction(s) from transcribed text
+      const result = await this.extractFromText(transcribedText, additionalContext, categories);
 
+      // Handle both single transaction and array of transactions
+      if (Array.isArray(result)) {
+        // Add transcribed text to each transaction
+        return result.map(txn => ({
+          ...txn,
+          raw_text: transcribedText,
+        }));
+      }
+
+      // Single transaction
       return {
-        ...transaction,
+        ...result,
         raw_text: transcribedText,
       };
     } catch (error) {
@@ -185,12 +195,12 @@ module.exports = {
   aiServiceFactory,
   AIServiceFactory,
   // Backward compatibility exports
-  extractFromImage: (base64Image, mimeType, context) => 
-    aiServiceFactory.extractFromImage(base64Image, mimeType, context),
-  extractFromText: (text, context) => 
-    aiServiceFactory.extractFromText(text, context),
-  extractFromAudio: (audioPath, context) => 
-    aiServiceFactory.extractFromAudio(audioPath, context),
+  extractFromImage: (base64Image, mimeType, context, categories) => 
+    aiServiceFactory.extractFromImage(base64Image, mimeType, context, categories),
+  extractFromText: (text, context, categories) => 
+    aiServiceFactory.extractFromText(text, context, categories),
+  extractFromAudio: (audioPath, context, categories) => 
+    aiServiceFactory.extractFromAudio(audioPath, context, categories),
   transcribeAudio: (audioPath) => 
     aiServiceFactory.transcribeAudio(audioPath),
   checkAPIHealth: () => 

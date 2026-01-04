@@ -18,6 +18,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // =============================================
+// TRUST PROXY CONFIGURATION
+// =============================================
+
+// Enable trust proxy for ngrok, render, heroku, etc.
+// This allows rate limiter to see real client IP from X-Forwarded-For header
+app.set('trust proxy', 1);
+
+// =============================================
 // SECURITY MIDDLEWARE
 // =============================================
 

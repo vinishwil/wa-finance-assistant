@@ -42,12 +42,41 @@ Server runs at `http://localhost:3000` ✅
 
 ## 📱 Test Your Bot
 
-### 1. Set Up Webhook (First Time Only)
+### 1. Set Up Webhook with ngrok (For Local Development)
 
+#### Install ngrok (if not already installed)
+```bash
+brew install ngrok
+```
+
+#### Authenticate ngrok (First Time Only)
+1. Sign up at [ngrok.com](https://ngrok.com)
+2. Get your authtoken from dashboard
+3. Run:
+```bash
+ngrok config add-authtoken YOUR_AUTH_TOKEN
+```
+
+#### Start ngrok tunnel
+```bash
+ngrok http 3000
+```
+
+This will give you a public URL like: `https://abc123.ngrok-free.app`
+
+**Copy this URL** - you'll need it for the webhook!
+
+#### Configure Meta Developer Console
 In Meta Developer Console:
-- Webhook URL: `https://your-domain.com/webhook/whatsapp`
-- Verify Token: (from your `.env`)
+- Webhook URL: `https://your-ngrok-url.ngrok-free.app/webhook/whatsapp`
+  (Example: `https://abc123.ngrok-free.app/webhook/whatsapp`)
+- Verify Token: (from your `.env` file - the `WHATSAPP_VERIFY_TOKEN`)
 - Subscribe to: `messages`
+
+**Important Notes:**
+- Keep ngrok running while testing
+- ngrok URL changes each time you restart (unless you have a paid plan)
+- Update webhook URL in Meta Console if ngrok URL changes
 
 ### 2. Link Your WhatsApp
 

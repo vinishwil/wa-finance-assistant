@@ -172,8 +172,9 @@ async function processAudioMedia(mediaId, mimeType) {
     // Download media
     const { buffer, mimeType: finalMimeType, size } = await downloadWhatsAppMedia(mediaId, mimeType);
     
-    // Save to temp file for Whisper API (requires file path)
-    const extension = finalMimeType.split('/')[1] || 'ogg';
+    // Extract extension from MIME type (handle codecs parameter)
+    const baseMimeType = finalMimeType.split(';')[0].trim();
+    const extension = baseMimeType.split('/')[1] || 'ogg';
     const tempPath = await saveToTempFile(buffer, extension);
     
     // Optionally upload to Supabase Storage for backup

@@ -3,12 +3,8 @@ const logger = require('../utils/logger');
 const { v4: uuidv4 } = require('uuid');
 
 /**
- * Supabase Service - Database operations with error handling
- * Following Single Responsibility Principle
- */
-
-/**
  * Get user by WhatsApp phone number
+ * Returns user data with family_id from family_members relationship
  */
 async function getUserByWhatsapp(whatsappNumber) {
   try {
@@ -16,10 +12,17 @@ async function getUserByWhatsapp(whatsappNumber) {
       .from('whatsapp_links')
       .select(`
         *,
-        users (*)
+        users (
+          *,
+          family_members!inner (
+            family_id,
+            role
+          )
+        )
       `)
       .eq('whatsapp_number', whatsappNumber)
       .eq('verified', true)
+      .eq('users.family_members.is_deleted', false)
       .single();
 
     if (error) {
@@ -30,7 +33,20 @@ async function getUserByWhatsapp(whatsappNumber) {
       throw error;
     }
 
-    return data?.users || null;
+    // Flatten the structure to include family_id at user level
+    if (data?.users) {
+      const user = data.users;
+      const familyMember = user.family_members?.[0];
+      
+      if (familyMember) {
+        user.family_id = familyMember.family_id;
+        user.role = familyMember.role;
+      }
+      
+      return user;
+    }
+
+    return null;
   } catch (error) {
     logger.logError(error, { context: 'getUserByWhatsapp', whatsappNumber });
     throw error;
@@ -145,47 +161,68 @@ async function verifyWhatsappLink(whatsappNumber, verificationCode) {
  */
 async function checkSubscription(userId) {
   try {
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
+    // Get user's family membership
+    const { data: familyMember, error: memberError } = await supabase
+      .from('family_members')
+      .select(`
+        family_member_id,
+        families (
+          subscription_type,
+          subscription_status,
+          subscription_start_date,
+          subscription_end_date
+        )
+      `)
       .eq('user_id', userId)
+      .eq('is_deleted', false)
       .single();
 
-    if (error) throw error;
+    if (memberError) {
+      if (memberError.code === 'PGRST116') {
+        // No family membership found
+        return {
+          hasSubscription: false,
+          subscriptionType: 'free',
+          subscriptionStatus: 'inactive',
+          expiresAt: null,
+        };
+      }
+      throw memberError;
+    }
 
-    // Get family subscription if user belongs to one
-    if (user.family_id) {
-      const { data: family, error: familyError } = await supabase
-        .from('families')
-        .select('subscription_type, subscription_status, subscription_end_date')
-        .eq('family_id', user.family_id)
-        .single();
-
-      if (familyError) throw familyError;
-
-      const isActive = 
-        family.subscription_status === 'active' &&
-        family.subscription_type !== 'free' &&
-        (!family.subscription_end_date || new Date(family.subscription_end_date) > new Date());
-
+    // Get family subscription details
+    const family = familyMember?.families;
+    
+    if (!family) {
       return {
-        hasSubscription: isActive,
-        subscriptionType: family.subscription_type,
-        subscriptionStatus: family.subscription_status,
-        expiresAt: family.subscription_end_date,
+        hasSubscription: false,
+        subscriptionType: 'free',
+        subscriptionStatus: 'inactive',
+        expiresAt: null,
       };
     }
 
+    // Check if subscription is active
+    const isActive = 
+      (family.subscription_status === 'active' || family.subscription_status === 'will_expire') &&
+      (family.subscription_type === 'free_trial' || family.subscription_type === 'premium' || family.subscription_type === 'enterprise') &&
+      (!family.subscription_end_date || new Date(family.subscription_end_date) > new Date());
+
     return {
-      hasSubscription: false,
-      subscriptionType: 'free',
-      subscriptionStatus: 'inactive',
-      expiresAt: null,
+      hasSubscription: isActive,
+      subscriptionType: family.subscription_type,
+      subscriptionStatus: family.subscription_status,
+      expiresAt: family.subscription_end_date,
     };
   } catch (error) {
     logger.logError(error, { context: 'checkSubscription', userId });
     // Default to free tier on error
-    return { hasSubscription: false, subscriptionType: 'free', subscriptionStatus: 'inactive' };
+    return { 
+      hasSubscription: false, 
+      subscriptionType: 'free', 
+      subscriptionStatus: 'inactive',
+      expiresAt: null 
+    };
   }
 }
 
@@ -204,6 +241,7 @@ async function insertTransaction(transactionData) {
       transaction_date: transactionData.date,
       category_id: transactionData.category_id || null,
       wallet_id: transactionData.wallet_id || null,
+      recipient_id: transactionData.recipient_id || null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       created_by: transactionData.user_id,
@@ -229,20 +267,43 @@ async function insertTransaction(transactionData) {
 /**
  * Get categories for a family from categories table
  * Returns both default and custom categories that are not deleted
+ * Combines default_categories and family-specific custom categories
  */
 async function getCategoriesForFamily(familyId) {
   try {
-    const { data, error } = await supabase
-      .from('categories')
-      .select('*')
-      .eq('family_id', familyId)
-      .eq('is_deleted', false)
+    // Get default categories
+    const { data: defaultCategories, error: defaultError } = await supabase
+      .from('default_categories')
+      .select(`
+        category_id:default_category_id,
+        name,
+        type,
+        icon,
+        color,
+        emoji
+      `)
       .order('name', { ascending: true });
 
-    if (error) throw error;
+    if (defaultError) throw defaultError;
+
+    // Get custom categories for this family
+    const { data: customCategories, error: customError } = await supabase
+      .from('categories')
+      .select('category_id, name, type, icon, color, emoji')
+      .eq('family_id', familyId)
+      .eq('is_deleted', false)
+      .is('default_category_id', null) // Only custom categories
+      .order('name', { ascending: true });
+
+    if (customError) throw customError;
+
+    // Combine both lists
+    const allCategories = [
+      ...(defaultCategories || []),
+      ...(customCategories || [])
+    ];
     
-    // Return array of categories or empty array if none exist
-    return data || [];
+    return allCategories;
   } catch (error) {
     logger.logError(error, { context: 'getCategoriesForFamily', familyId });
     return [];
@@ -251,22 +312,36 @@ async function getCategoriesForFamily(familyId) {
 
 /**
  * Find category ID by name in family's categories
+ * Searches both default_categories and custom categories
  */
 async function findCategoryIdByName(categoryName, familyId) {
   try {
-    const { data, error } = await supabase
+    // First, search in default categories
+    const { data: defaultCategory, error: defaultError } = await supabase
+      .from('default_categories')
+      .select('default_category_id:category_id')
+      .ilike('name', categoryName)
+      .single();
+    
+    if (!defaultError && defaultCategory) {
+      return defaultCategory.category_id;
+    }
+
+    // If not found in defaults, search in custom categories
+    const { data: customCategory, error: customError } = await supabase
       .from('categories')
       .select('category_id')
       .eq('family_id', familyId)
-      .ilike('name', categoryName)  // Case-insensitive search
+      .ilike('name', categoryName)
       .eq('is_deleted', false)
+      .is('default_category_id', null)
       .single();
     
-    if (error && error.code !== 'PGRST116') {
-      throw error;
+    if (!customError && customCategory) {
+      return customCategory.category_id;
     }
     
-    return data?.category_id || null;
+    return null;
   } catch (error) {
     logger.logError(error, { context: 'findCategoryIdByName', categoryName, familyId });
     return null;
@@ -368,27 +443,133 @@ async function initializeDefaultCategoriesForFamily(familyId) {
 }
 
 /**
- * Get or create category by name (works with new table structure)
+ * Get category by name with fuzzy matching (does NOT auto-create)
+ * Uses provided categories list to avoid duplicate fetching
+ * Returns category_id or null if not found
+ * 
+ * @param {string} categoryName - The category name to search for
+ * @param {Array} availableCategories - Pre-fetched list of categories
+ * @returns {string|null} - category_id or null
  */
-async function getOrCreateCategory(categoryName, familyId) {
+function getCategoryByName(categoryName, availableCategories) {
   try {
-    // Try to find existing category
-    const existingId = await findCategoryIdByName(categoryName, familyId);
-    
-    if (existingId) {
-      return existingId;
+    if (!availableCategories || availableCategories.length === 0) {
+      logger.warn('No categories provided to getCategoryByName');
+      return null;
     }
+
+    const requested = categoryName.toLowerCase().trim();
+
+    // Try exact match first (case-insensitive)
+    const exactMatch = availableCategories.find(cat => 
+      cat.name.toLowerCase() === requested
+    );
     
-    // Determine category type and icon based on name
-    const categoryType = determineCategoryType(categoryName);
-    const emoji = determineCategoryIcon(categoryName);
+    if (exactMatch) {
+      return exactMatch.category_id;
+    }
+
+    // If no exact match, try fuzzy matching
+    const matchedCategory = fuzzyMatchCategory(categoryName, availableCategories);
     
-    // Create new custom category
-    return await addCategoryToFamily(familyId, categoryName, categoryType, null, null, emoji);
+    if (matchedCategory) {
+      logger.info('Fuzzy matched category', { 
+        requested: categoryName, 
+        matched: matchedCategory.name 
+      });
+      return matchedCategory.category_id;
+    }
+
+    // If still no match, try to find "Other" category as fallback
+    const otherCategory = availableCategories.find(cat => 
+      cat.name.toLowerCase() === 'other' && cat.type === 'expense'
+    );
+
+    if (otherCategory) {
+      logger.info('Category not found, mapped to Other', { 
+        requested: categoryName 
+      });
+      return otherCategory.category_id;
+    }
+
+    return null;
   } catch (error) {
-    logger.logError(error, { context: 'getOrCreateCategory', categoryName, familyId });
+    logger.logError(error, { context: 'getCategoryByName', categoryName });
     return null;
   }
+}
+
+/**
+ * Fuzzy match category name to available categories
+ * Uses keyword matching and similarity scoring
+ */
+function fuzzyMatchCategory(requestedCategory, availableCategories) {
+  const requested = requestedCategory.toLowerCase().trim();
+  
+  // Category keyword mappings for common variations
+  const categoryMappings = {
+    'bills': ['house', 'utilities', 'bill'],
+    'home': ['house'],
+    'house': ['home', 'bills'],
+    'groceries': ['food', 'food & dinning'],
+    'food': ['food & dinning', 'groceries'],
+    'dining': ['food & dinning', 'food'],
+    'restaurant': ['food & dinning', 'entertainment'],
+    'transport': ['transportation'],
+    'car': ['transportation'],
+    'fuel': ['transportation'],
+    'gas': ['transportation'],
+    'medical': ['health & personal care'],
+    'health': ['health & personal care'],
+    'doctor': ['health & personal care'],
+    'medicine': ['health & personal care'],
+    'movies': ['entertainment'],
+    'game': ['entertainment'],
+    'gym': ['health & personal care'],
+    'salary': ['employment'],
+    'income': ['employment', 'other'],
+    'investment': ['investment'],
+    'rent': ['rental', 'house'],
+    'rental': ['rent'],
+    'education': ['education'],
+    'school': ['education'],
+    'kids': ['child care'],
+    'children': ['child care'],
+    'baby': ['child care'],
+    'pet': ['pets'],
+    'dog': ['pets'],
+    'cat': ['pets'],
+    'shopping': ['shopping'],
+    'clothes': ['shopping'],
+    'travel': ['travel'],
+    'trip': ['travel'],
+    'vacation': ['travel'],
+    'flight': ['travel'],
+    'business': ['business'],
+  };
+
+  // Check if requested category matches any keywords
+  for (const [keyword, targetCategories] of Object.entries(categoryMappings)) {
+    if (requested.includes(keyword)) {
+      // Find matching category in available categories
+      for (const targetName of targetCategories) {
+        const found = availableCategories.find(cat => 
+          cat.name.toLowerCase().includes(targetName.toLowerCase())
+        );
+        if (found) {
+          return found;
+        }
+      }
+    }
+  }
+
+  // Fallback: Check if any available category name is contained in requested
+  const partialMatch = availableCategories.find(cat => {
+    const catName = cat.name.toLowerCase();
+    return requested.includes(catName) || catName.includes(requested);
+  });
+
+  return partialMatch || null;
 }
 
 /**
@@ -604,7 +785,7 @@ module.exports = {
   verifyWhatsappLink,
   checkSubscription,
   insertTransaction,
-  getOrCreateCategory,
+  getCategoryByName,
   getCategoriesForFamily,
   findCategoryIdByName,
   addCategoryToFamily,

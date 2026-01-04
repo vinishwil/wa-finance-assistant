@@ -76,20 +76,20 @@ router.get('/stats', authenticateAdmin, async (req, res) => {
       throw new Error('Supabase client not initialized');
     }
 
-    const { data: messageCount, error: messageError } = await supabase
+    const { count: messageCount, error: messageError } = await supabase
       .from('event_logs')
       .select('count', { count: 'exact', head: true })
       .eq('event_type', 'whatsapp_message_received');
 
     if (messageError) throw messageError;
 
-    const { data: transactionCount, error: transactionError } = await supabase
+    const { count: transactionCount, error: transactionError } = await supabase
       .from('transactions')
       .select('count', { count: 'exact', head: true });
 
     if (transactionError) throw transactionError;
 
-    const { data: linkedUsers, error: linkedError } = await supabase
+    const { count: linkedUsers, error: linkedError } = await supabase
       .from('whatsapp_links')
       .select('count', { count: 'exact', head: true })
       .eq('verified', true);

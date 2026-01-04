@@ -49,9 +49,17 @@ const transports = [
   new winston.transports.Console({
     format: winston.format.combine(
       winston.format.colorize({ all: true }),
-      winston.format.printf(
-        (info) => `${info.timestamp} [${info.level}]: ${info.message}`
-      )
+      winston.format.printf((info) => {
+        const { timestamp, level, message, ...meta } = info;
+        let output = `${timestamp} [${level}]: ${message}`;
+        
+        // In development, show metadata for better debugging
+        if (Object.keys(meta).length > 0 && process.env.NODE_ENV === 'development') {
+          // output += '\n' + JSON.stringify(meta, null, 2);
+        }
+        
+        return output;
+      })
     ),
   }),
   

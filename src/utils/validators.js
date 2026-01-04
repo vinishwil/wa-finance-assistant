@@ -119,13 +119,16 @@ function validateFileSize(sizeInBytes, maxSizeMB = 10) {
  */
 const allowedMediaTypes = {
   image: ['image/jpeg', 'image/png', 'image/webp'],
-  audio: ['audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/amr'],
+  audio: ['audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/amr', 'audio/wav'],
   document: ['application/pdf'],
 };
 
 function validateMediaType(mimeType, category) {
+  // Extract base MIME type (remove codecs and other parameters)
+  const baseMimeType = mimeType.split(';')[0].trim();
+  
   const allowed = allowedMediaTypes[category];
-  if (!allowed || !allowed.includes(mimeType)) {
+  if (!allowed || !allowed.includes(baseMimeType)) {
     throw new Error(`Media type ${mimeType} is not allowed for ${category}`);
   }
   return true;
